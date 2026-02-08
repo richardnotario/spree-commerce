@@ -7,8 +7,18 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
 jobs:
   e2e:
+    name: Run tests + publish report
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -33,7 +43,8 @@ jobs:
           BASE_URL: https://demo.spreecommerce.org
         run: npx playwright test
 
-      - name: Upload HTML report
+      # Keep artifacts downloadable from the Actions run (useful even with Pages)
+      - name: Upload Playwright HTML report (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -41,10 +52,44 @@ jobs:
           path: playwright-report
           retention-days: 7
 
-      - name: Upload test results (screenshots/videos/traces/junit)
+      - name: Upload test results (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: test-results
           retention-days: 7
+
+      # Publish playwright-report/ to GitHub Pages
+      - name: Upload Pages artifact (playwright-report)
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playwright-report
+
+  deploy:
+    name: Deploy report to GitHub Pages
+    if: always()
+    needs: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Publish report link to summary
+        if: always()
+        run: |
+          echo "## Playwright HTML Report (GitHub Pages)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Report URL: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "If you need artifacts instead:" >> $GITHUB_STEP_SUMMARY
+          echo "- Download **playwright-report** (HTML)" >> $GITHUB_STEP_SUMMARY
+          echo "- Download **test-results** (screenshots/videos/traces/junit.xml)" >> $GITHUB_STEP_SUMMARY
